@@ -1,0 +1,73 @@
+<%# Factory function string -%>
+<%
+    func defaultFactory(_ type: Type) -> String {
+        if type.kind == "protocol" {
+            return "CODEGEN ERROR: could not create factory method"
+        }
+
+        if type is Struct {
+            return structDefaultFactory(type)
+        }
+
+        if let enumeration = type as? Enum {
+            return "static func make() -> \(type.name) { return \(enumeration.cases.first?.name ?? "" ) }"
+        }
+
+        return classDefaultFactory(type)
+    }
+
+    func classDefaultFactory(_ type: Type) -> String {
+        var output = "static func make("
+
+        let initializer = type.initializers
+            .filter { !$0.isConvenienceInitializer }
+            .first
+        let initializerParameters = initializer?.parameters ?? []
+        let parameters = initializerParameters
+            .map { "\($0.argumentLabel ?? $0.name): \($0.typeName) = \($0.typeName).defaultValue" }
+
+        let parametersString = parameters.joined(separator: ", \n")
+        output.append(parametersString)
+        output.append(") -> \(type.name) ")
+
+        let initializerInvocation = """
+        {
+            return \(type.name)(\(initializerParameters.map({ "\($0.argumentLabel ?? $0.name): \($0.name)" }).joined(separator: ", \n")))
+        }
+        """
+        output.append(initializerInvocation)
+        return output
+    }
+
+    func structDefaultFactory(_ type: Type) -> String {
+        var output = "static func make("
+
+        let parameters = type.storedVariables
+            .map { "\($0.name): \($0.typeName) = \($0.typeName).defaultValue" }
+
+        let parametersString = parameters.joined(separator: ", \n")
+        output.append(parametersString)
+        output.append(") -> \(type.name) ")
+
+        let initializerInvocation = """
+        {
+            return \(type.name)(\(type.storedVariables.map({ "\($0.name): \($0.name)" }).joined(separator: ", \n")))
+        }
+        """
+        output.append(initializerInvocation)
+        return output
+    }
+-%>
+
+<% let autoMakeTypes = try! types.implementing.types(forKey: "AutoMake") %>
+<% for type in autoMakeTypes { -%>
+// sourcery:inline:<%= type.name %>.AutoMake
+extension <%= type.name %> {
+    <%= defaultFactory(type) %>
+}
+
+extension <%= type.name %> {
+    static var defaultValue: <%= type.name %> { return <%= type.name %>.make() }
+}
+// sourcery:end
+<% } -%>
